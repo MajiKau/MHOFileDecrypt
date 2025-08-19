@@ -24,14 +24,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#define _CRT_SECURE_NO_WARNINGS
-#include <assert.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
+#include "CryXmlbReader.h"
 
 #include "tinyxml2.h"
+#include "Utils.h"
 
 namespace CryXMLB {
 	struct cry_xml_node_t {
@@ -59,6 +55,8 @@ namespace CryXMLB {
 		unsigned char* data;
 		uint64_t size;
 	};
+
+
 	read_file_result_t read_file(const char* filename) {
 		read_file_result_t result = {};
 		FILE* f = fopen(filename, "rb");
@@ -173,41 +171,38 @@ namespace CryXMLB {
 		bytes[3] = read_byte(stream);
 		return (bytes[3] << 24) | (bytes[2] << 16) | (bytes[1] << 8) | bytes[0];
 	}
+
 	int32_t read_int32(binary_stream_t* stream) {
 		return (int32_t)read_uint32(stream);
 	}
 
-	void convert_file(const char* filename) {
+	bool ConvertCryXmlbToXml(const std::string& filename, const std::string& output) {
 		binary_stream_t the_stream = {};
 
-		const char* ext_str = "bak";
-		read_file_result_t xml_file = read_file(filename);
+		printf("Reading file %s\n", filename);
+		auto xml_file = ReadFileContents(filename);
 
 		binary_stream_t* stream = &the_stream;
-		stream->data = xml_file.data;
-		stream->size = xml_file.size;
+		stream->data = xml_file.data();
+		stream->size = xml_file.size();
 
-		if (xml_file.data && xml_file.size) {
+		printf("Checking data and size\n");
+		if (stream->data && stream->size) {
 			unsigned char peek = peek_byte(stream);
 			if (peek == '<') {
-				fprintf(stdout, "File %s is already XML\n", filename);
-				return;
+				fprintf(stderr, "File %s is already XML\n", filename);
+				return false;
 			}
 			else if (peek != 'C') {
 				fprintf(stderr, "File %s has unknown file format\n", filename);
-				return;
+				return false;
 			}
 
-			char* backup_name = (char*)malloc(strlen(filename) + strlen(ext_str));
-			sprintf(backup_name, "%s.%s", filename, ext_str);
-			if (!write_file(backup_name, xml_file.data, xml_file.size)) {
-				fprintf(stderr, "Aborting.\n");
-				exit(1);
-			}
-
+			printf("Reading header string\n");
 			char* header = read_cstring(stream);
 			if (header) {
 				if (strncmp(header, "CryXmlB", 7) == 0) {
+					printf("Reading header values\n");
 					uint32_t file_size = read_int32(stream);
 
 					uint32_t node_table_offset = read_int32(stream);
@@ -222,8 +217,19 @@ namespace CryXMLB {
 					uint32_t data_table_offset = read_int32(stream);
 					uint32_t data_table_size = read_int32(stream);
 
+					printf("file_size %d\n", file_size);
+					printf("node_table_offset %d\n", node_table_offset);
+					printf("node_table_count %d\n", node_table_count);
+					printf("attr_table_offset %d\n", attr_table_offset);
+					printf("attr_table_count %d\n", attr_table_count);
+					printf("child_table_offset %d\n", child_table_offset);
+					printf("child_table_count %d\n", child_table_count);
+					printf("data_table_offset %d\n", data_table_offset);
+					printf("data_table_size %d\n", data_table_size);
+
 					cry_xml_node_t* node_table = (cry_xml_node_t*)calloc(node_table_count, sizeof(*node_table));
 					seek(stream, node_table_offset);
+					printf("Reading node table\n");
 					for (uint32_t i = 0; i < node_table_count; i++) {
 						cry_xml_node_t* node = node_table + i;
 						node->name_offset = read_int32(stream);
@@ -233,11 +239,22 @@ namespace CryXMLB {
 						node->parent_id = read_int32(stream);
 						node->first_attr_idx = read_int32(stream);
 						node->first_child_idx = read_int32(stream);
+						printf("%d: %d\n", i, node->first_child_idx);
 						node->reserved = read_int32(stream);
+
+						if (node->name_offset >= (int)data_table_size) { 
+							fprintf(stderr, "Bad name_offset %d >= %d\n", node->name_offset, data_table_size);
+							throw(1); 
+						}
+                        if (node->content_offset >= (int)data_table_size) {
+                           fprintf(stderr, "Bad content_offset %d >= %d\n", node->content_offset, data_table_size);
+                           throw(1); 
+                        }
 					}
 
 					cry_xml_ref_t* attr_table = (cry_xml_ref_t*)calloc(attr_table_count, sizeof(*attr_table));
 					seek(stream, attr_table_offset);
+					printf("Reading attr table %d\n", attr_table_count);
 					for (uint32_t i = 0; i < attr_table_count; i++) {
 						attr_table[i].name_offset = read_int32(stream);
 						attr_table[i].value_offset = read_int32(stream);
@@ -245,6 +262,7 @@ namespace CryXMLB {
 
 					uint32_t* child_table = (uint32_t*)calloc(child_table_count, sizeof(*child_table));
 					seek(stream, child_table_offset);
+					printf("Reading child table %d\n", child_table_count);
 					for (uint32_t i = 0; i < child_table_count; i++) {
 						child_table[i] = read_int32(stream);
 					}
@@ -253,6 +271,7 @@ namespace CryXMLB {
 					tinyxml2::XMLElement** xml_nodes = (tinyxml2::XMLElement**)malloc(node_table_count * sizeof(*xml_nodes));
 					uint64_t attr_idx = 0;
 					char* data_table = (char*)stream->data + data_table_offset;
+					printf("Reading node table %d\n", node_table_count);
 					for (uint32_t i = 0; i < node_table_count; i++) {
 						cry_xml_node_t* node = node_table + i;
 						tinyxml2::XMLElement* elem = doc.NewElement(data_table + node->name_offset);
@@ -274,25 +293,24 @@ namespace CryXMLB {
 					}
 
 					// TODO: switch to non-compact and fix formatting
-					doc.SaveFile(filename, true);
+					std::string newFilename = std::string(filename) + ".xml";
+					printf("Save XML %s\n", newFilename.c_str());
+					doc.SaveFile(output.c_str(), true);
+					return true;
 				}
 				else {
 					fprintf(stderr, "Invalid header in file %s\n", filename);
+					throw;
 				}
 			}
 			else {
 				fprintf(stderr, "Error reading header of file %s\n", filename);
+				throw;
 			}
+		}
+		else {
+			fprintf(stderr, "Error reading file %s\n", filename);
+			throw;
 		}
 	}
 }
-
-//int main(int argc, char* argv[]) {
-//	if (argc == 2) {
-//		convert_file(argv[1]);
-//	}
-//	else {
-//		fprintf(stderr, "USAGE: CryXmlB filename\n");
-//	}
-//	return 0;
-//}

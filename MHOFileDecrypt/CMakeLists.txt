@@ -3,7 +3,7 @@
 #
 
 # Add source to this project's executable.
-add_executable (MHOFileDecrypt "MHOFileDecrypt.cpp" "MHOFileDecrypt.h" "CryXMLB.cpp" "tinyxml2.cpp" "CryXMLB.h")
+add_executable (MHOFileDecrypt   "CryXmlbReader.cpp" "tinyxml2.cpp" "CryXmlbReader.h" "MhoEncryption.h" "MhoEncryption.cpp" "CryXmlBWriter.h" "CryXmlBWriter.cpp" "main.cpp"  "Utils.h" "Utils.cpp")
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET MHOFileDecrypt PROPERTY CXX_STANDARD 20)
