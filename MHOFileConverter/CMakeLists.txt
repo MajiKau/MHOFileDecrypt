@@ -1,4 +1,4 @@
-﻿# CMakeList.txt : CMake project for MHOFileDecrypt, include source and define
+﻿# CMakeList.txt : CMake project for MHOFileConverter, include source and define
 # project specific logic here.
 #
 
